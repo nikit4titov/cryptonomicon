@@ -9,7 +9,7 @@
             >
             <div class="mt-1 relative rounded-md shadow-md">
               <input
-                v-model.trim="newTickerName"
+                v-model.trim="ticker"
                 @keydown.enter="add"
                 type="text"
                 name="wallet"
@@ -140,15 +140,14 @@
         </button>
       </section>
 
-      <template v-if="tickers.length >= 1">
+      <template v-if="tickers.length > 0">
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
-          <!-- TICKERS -->
           <div
             v-for="t in tickers"
             :key="t.name"
             @click="select(t)"
-            :class="{ 'border-4': t === selectedTicker }"
+            :class="{ 'border-4': t === selected }"
             class="
               bg-white
               overflow-hidden
@@ -204,9 +203,9 @@
         </dl>
         <hr class="w-full border-t border-gray-600 my-4" />
       </template>
-      <section v-if="selectedTicker !== null" class="relative">
+      <section v-if="selected" class="relative">
         <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">
-          {{ selectedTicker.name }} - USD
+          {{ selected.name }} - USD
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
@@ -217,7 +216,7 @@
           ></div>
         </div>
         <button
-          @click="selectedTicker = null"
+          @click="selected = null"
           type="button"
           class="absolute top-0 right-0"
         >
@@ -249,54 +248,46 @@ export default {
   name: "App",
   data() {
     return {
-      newTickerName: "",
+      ticker: "",
       tickers: [],
-      selectedTicker: null,
+      selected: null,
       graph: [],
     };
   },
   methods: {
     add() {
-      if (this.newTickerName === "") {
+      if (!this.ticker) {
         return;
       }
       const newTicker = {
-        name: this.newTickerName,
+        name: this.ticker,
         price: "-",
       };
       this.tickers.push(newTicker);
       setInterval(async () => {
-        try {
-          const res = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD`
-          );
-          const data = await res.json();
-          const ticker = this.tickers.find((t) => t.name === newTicker.name);
-          if (!ticker || !data.USD) {
-            return;
-          }
-          ticker.price =
-            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-          if (ticker.name === this.selectedTicker?.name) {
-            this.graph.push(data.USD);
-          }
-        } catch (e) {
-          console.log(e.toString());
+        const res = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD`
+        );
+        const { USD } = await res.json();
+        this.tickers.find((t) => t.name === newTicker.name).price =
+          USD > 1 ? USD.toFixed(2) : USD.toPrecision(2);
+        if (this.selected?.name === newTicker.name) {
+          this.graph.push(USD);
         }
       }, 2000);
-      this.newTickerName = "";
+      this.ticker = "";
     },
     remove(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
-      if (this.selectedTicker === tickerToRemove) {
-        this.selectedTicker = null;
+      if (this.selected === tickerToRemove) {
+        this.selected = null;
       }
     },
     select(ticker) {
-      if (this.selectedTicker === ticker) {
+      if (this.selected === ticker) {
         return;
       }
-      this.selectedTicker = ticker;
+      this.selected = ticker;
       this.graph = [];
     },
   },
