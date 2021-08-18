@@ -1,6 +1,7 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
     <div
+      v-if="loading"
       class="
         fixed
         w-100
@@ -45,6 +46,7 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model.trim="ticker"
+                @input="onTickerChange"
                 @keydown.enter="add"
                 type="text"
                 name="wallet"
@@ -63,9 +65,13 @@
               />
             </div>
             <div
+              v-if="tips.length > 0"
               class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
             >
               <span
+                v-for="tip in tips"
+                :key="tip"
+                @click="onTipClick(tip)"
                 class="
                   inline-flex
                   items-center
@@ -79,58 +85,12 @@
                   cursor-pointer
                 "
               >
-                BTC
-              </span>
-              <span
-                class="
-                  inline-flex
-                  items-center
-                  px-2
-                  m-1
-                  rounded-md
-                  text-xs
-                  font-medium
-                  bg-gray-300
-                  text-gray-800
-                  cursor-pointer
-                "
-              >
-                DOGE
-              </span>
-              <span
-                class="
-                  inline-flex
-                  items-center
-                  px-2
-                  m-1
-                  rounded-md
-                  text-xs
-                  font-medium
-                  bg-gray-300
-                  text-gray-800
-                  cursor-pointer
-                "
-              >
-                BCH
-              </span>
-              <span
-                class="
-                  inline-flex
-                  items-center
-                  px-2
-                  m-1
-                  rounded-md
-                  text-xs
-                  font-medium
-                  bg-gray-300
-                  text-gray-800
-                  cursor-pointer
-                "
-              >
-                CHD
+                {{ tip }}
               </span>
             </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
+            <div v-if="error" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
@@ -288,15 +248,33 @@ export default {
       tickers: [],
       selected: null,
       graph: [],
+      coins: [],
+      loading: false,
+      error: false,
     };
+  },
+  async created() {
+    this.loading = true;
+    const res = await fetch(
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+    );
+    const { Data } = await res.json();
+    this.coins = Object.values(Data);
+    this.loading = false;
   },
   methods: {
     add() {
       if (!this.ticker) {
         return;
       }
+      for (const t of this.tickers) {
+        if (t.name === this.ticker.toUpperCase()) {
+          this.error = true;
+          return;
+        }
+      }
       const newTicker = {
-        name: this.ticker,
+        name: this.ticker.toUpperCase(),
         price: "-",
       };
       this.tickers.push(newTicker);
@@ -313,6 +291,10 @@ export default {
       }, 2000);
       this.ticker = "";
     },
+    onTipClick(tip) {
+      this.ticker = tip;
+      this.add();
+    },
     remove(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
       if (this.selected === tickerToRemove) {
@@ -326,6 +308,9 @@ export default {
       this.selected = ticker;
       this.graph = [];
     },
+    onTickerChange() {
+      this.error = false;
+    },
   },
   computed: {
     normalizeGraph() {
@@ -334,6 +319,24 @@ export default {
       return this.graph.map(
         (value) => 5 + ((value - minValue) * 95) / (maxValue - minValue)
       );
+    },
+    tips() {
+      const tips = [];
+      if (this.ticker === "") {
+        return tips;
+      }
+      for (const coin of this.coins) {
+        if (
+          coin.Symbol.includes(this.ticker.toUpperCase()) ||
+          coin.FullName.toUpperCase().includes(this.ticker.toUpperCase())
+        ) {
+          tips.push(coin.Symbol);
+          if (tips.length === 4) {
+            break;
+          }
+        }
+      }
+      return tips;
     },
   },
 };
