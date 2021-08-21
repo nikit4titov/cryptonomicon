@@ -157,6 +157,8 @@
         />
         <div>
           <button
+            v-if="page > 1"
+            @click="page = page - 1"
             class="
               m-1
               my-4
@@ -184,6 +186,8 @@
             Назад
           </button>
           <button
+            v-if="hasNextPage"
+            @click="page = page + 1"
             class="
               m-1
               my-4
@@ -213,11 +217,11 @@
         </div>
       </div>
 
-      <template v-if="tickers.length > 0">
+      <template v-if="filteredTickers().length > 0">
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="t in filteredTickers"
+            v-for="t in filteredTickers()"
             :key="t.name"
             @click="select(t)"
             :class="{ 'border-4': t === selected }"
@@ -330,10 +334,21 @@ export default {
       page: 1,
       loading: false,
       error: false,
+      hasNextPage: false,
     };
   },
   async created() {
     this.loading = true;
+
+    const paramsData = Object.fromEntries(
+      new URL(window.location).searchParams.entries()
+    );
+    if (paramsData.page) {
+      this.page = +paramsData.page;
+    }
+    if (paramsData.filter) {
+      this.filter = paramsData.filter;
+    }
 
     const tickersData = localStorage.getItem("tickers");
     if (tickersData) {
@@ -407,6 +422,18 @@ export default {
     onTickerChange() {
       this.error = false;
     },
+    filteredTickers() {
+      const start = (this.page - 1) * 6;
+      const end = this.page * 6;
+
+      const filteredTickers = this.tickers.filter((t) =>
+        t.name.includes(this.filter.toUpperCase())
+      );
+
+      this.hasNextPage = filteredTickers.length > end;
+
+      return filteredTickers.slice(start, end);
+    },
   },
   computed: {
     normalizeGraph() {
@@ -434,9 +461,20 @@ export default {
       }
       return tips;
     },
-    filteredTickers() {
-      return this.tickers.filter((t) =>
-        t.name.includes(this.filter.toUpperCase())
+  },
+  watch: {
+    page() {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
+    },
+    filter() {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
       );
     },
   },
