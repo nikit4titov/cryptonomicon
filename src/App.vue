@@ -88,6 +88,9 @@
                 {{ tip }}
               </span>
             </div>
+            <div v-if="tipsError" class="text-sm text-red-600">
+              Не удалось загрузить подсказки
+            </div>
             <div v-if="error" class="text-sm text-red-600">
               Такой тикер уже добавлен
             </div>
@@ -334,6 +337,7 @@ export default {
       page: 1,
       loading: false,
       error: false,
+      tipsError: false,
       hasNextPage: false,
     };
   },
@@ -358,11 +362,18 @@ export default {
       this.subscribeToUpdates(ticker.name);
     });
 
-    const res = await fetch(
-      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-    );
-    const { Data } = await res.json();
-    this.coins = Object.values(Data);
+    try {
+      const res = await fetch(
+        "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+      );
+      const { Data } = await res.json();
+      this.coins = Object.values(Data);
+      if (this.coins.length === 0) {
+        this.tipsError = true;
+      }
+    } catch (e) {
+      this.tipsError = true;
+    }
 
     this.loading = false;
   },
@@ -390,14 +401,18 @@ export default {
     },
     subscribeToUpdates(tickerName) {
       setInterval(async () => {
-        const res = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD`
-        );
-        const { USD } = await res.json();
-        this.tickers.find((t) => t.name === tickerName).price =
-          USD > 1 ? USD.toFixed(2) : USD.toPrecision(2);
-        if (this.selected?.name === tickerName) {
-          this.graph.push(USD);
+        try {
+          const res = await fetch(
+            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD`
+          );
+          const { USD } = await res.json();
+          this.tickers.find((t) => t.name === tickerName).price =
+            USD > 1 ? USD.toFixed(2) : USD.toPrecision(2);
+          if (this.selected?.name === tickerName) {
+            this.graph.push(USD);
+          }
+        } catch (e) {
+          this.tickers.find((t) => t.name === tickerName).price = "Can't load";
         }
       }, 2000);
     },
@@ -421,6 +436,7 @@ export default {
     },
     onTickerChange() {
       this.error = false;
+      this.tipsError = false;
     },
     filteredTickers() {
       const start = (this.page - 1) * 6;
