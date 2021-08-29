@@ -91,7 +91,7 @@
             <div v-if="tipsError" class="text-sm text-red-600">
               Не удалось загрузить подсказки
             </div>
-            <div v-if="tickerError" class="text-sm text-red-600">
+            <div v-if="hasTickerError" class="text-sm text-red-600">
               Такой тикер уже добавлен
             </div>
           </div>
@@ -242,7 +242,7 @@
                 {{ t.name }} - USD
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
-                {{ t.price }}
+                {{ formatPrice(t.price) }}
               </dd>
             </div>
             <div class="w-full border-t border-gray-200"></div>
@@ -292,7 +292,7 @@
             v-for="(bar, idx) in normalizedGraph"
             :key="idx"
             :style="{ height: `${bar}%` }"
-            class="bg-purple-800 border w-5"
+            class="bg-purple-800 border w-10"
           ></div>
         </div>
         <button
@@ -324,6 +324,9 @@
 </template>
 
 <script>
+import _ from "lodash";
+import { fetchCoins, subscribeToTicker, unsubscribeFromTicker } from "@/api";
+
 export default {
   name: "App",
 
@@ -336,8 +339,8 @@ export default {
       graph: [],
       page: 1,
       coins: [],
+      tips: [],
       loading: false,
-      tickerError: false,
       tipsError: false,
     };
   },
@@ -359,36 +362,38 @@ export default {
     const tickersData = localStorage.getItem("tickers");
     if (tickersData) {
       this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach((ticker) => {
+        subscribeToTicker(ticker.name, (newPrice) => {
+          this.updateTicker({
+            tickerName: ticker.name,
+            newPrice,
+          });
+        });
+      });
     }
-    this.tickers.forEach((ticker) => {
-      this.subscribeToUpdates(ticker.name);
-    });
 
     try {
-      const res = await fetch(
-        "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-      );
-      const { Data } = await res.json();
-      this.coins = Object.values(Data);
+      this.coins = await fetchCoins();
     } catch (e) {
       this.tipsError = true;
     }
+
+    this.debouncedGetTips = _.debounce(this.getTips, 100);
 
     this.loading = false;
   },
 
   methods: {
-    addTicker() {
-      if (!this.ticker) {
-        return;
+    formatPrice(price) {
+      if (price === "-") {
+        return price;
       }
+      return price > 1 ? price.toFixed(2) : price.toPrecision(2);
+    },
 
-      for (const { name } of this.tickers) {
-        if (name === this.ticker) {
-          this.tickerError = true;
-          console.log("ticker error set");
-          return;
-        }
+    addTicker() {
+      if (!this.ticker || this.hasTickerError) {
+        return;
       }
 
       const newTicker = {
@@ -396,27 +401,21 @@ export default {
         price: "-",
       };
       this.tickers.push(newTicker);
-      this.subscribeToUpdates(newTicker.name);
+      subscribeToTicker(newTicker.name, (newPrice) => {
+        this.updateTicker({
+          tickerName: newTicker.name,
+          newPrice,
+        });
+      });
       this.ticker = "";
     },
 
-    subscribeToUpdates(tickerName) {
-      setInterval(async () => {
-        try {
-          const res = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD`
-          );
-          const { USD } = await res.json();
-          this.tickers.find(({ name }) => name === tickerName).price =
-            USD > 1 ? USD.toFixed(2) : USD.toPrecision(2);
-          if (this.selectedTicker?.name === tickerName) {
-            this.graph.push(USD);
-          }
-        } catch (e) {
-          this.tickers.find(({ name }) => name === tickerName).price =
-            "Can't load";
-        }
-      }, 2000);
+    updateTicker({ tickerName, newPrice }) {
+      const ticker = this.tickers.find((t) => t.name === tickerName);
+      ticker.price = newPrice;
+      if (ticker === this.selectedTicker) {
+        this.graph.push(newPrice);
+      }
     },
 
     onTipClick(tip) {
@@ -426,6 +425,7 @@ export default {
 
     removeTicker(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
+      unsubscribeFromTicker(tickerToRemove.name);
 
       if (this.selectedTicker === tickerToRemove) {
         this.selectedTicker = null;
@@ -434,6 +434,31 @@ export default {
 
     selectTicker(ticker) {
       this.selectedTicker = ticker;
+    },
+
+    getTips() {
+      if (!this.ticker) {
+        this.tips = [];
+        return;
+      }
+
+      const tips = [];
+      for (const coin of this.coins) {
+        if (this.tickers.find((t) => t.name === coin.Symbol)) {
+          continue;
+        }
+        if (
+          coin.Symbol.includes(this.ticker) ||
+          coin.FullName.toUpperCase().includes(this.ticker)
+        ) {
+          tips.push(coin.Symbol);
+          if (tips.length === 4) {
+            this.tips = tips;
+            return;
+          }
+        }
+      }
+      this.tips = tips;
     },
   },
 
@@ -460,7 +485,7 @@ export default {
     },
 
     filteredTickers() {
-      return this.tickers.filter(({ name }) => name.includes(this.filter));
+      return this.tickers.filter((t) => t.name.includes(this.filter));
     },
 
     hasNextPage() {
@@ -471,40 +496,29 @@ export default {
       return this.filteredTickers.slice(this.startIndex, this.endIndex);
     },
 
-    tips() {
-      if (!this.ticker) {
-        return [];
-      }
-
-      const tips = [];
-      for (const { Symbol, FullName } of this.coins) {
-        if (
-          Symbol.includes(this.ticker) ||
-          FullName.toUpperCase().includes(this.ticker)
-        ) {
-          tips.push(Symbol);
-          if (tips.length === 4) {
-            return tips;
-          }
-        }
-      }
-      return tips;
-    },
-
     pageOptionsState() {
       return {
         filter: this.filter,
         page: this.page,
       };
     },
+
+    hasTickerError() {
+      for (const ticker of this.tickers) {
+        if (ticker.name === this.ticker) {
+          return true;
+        }
+      }
+      return false;
+    },
   },
 
   watch: {
-    pageOptionsState({ filter, page }) {
+    pageOptionsState(value) {
       window.history.pushState(
         null,
         document.title,
-        `${window.location.pathname}?filter=${filter}&page=${page}`
+        `${window.location.pathname}?filter=${value.filter}&page=${value.page}`
       );
     },
 
@@ -513,9 +527,11 @@ export default {
     },
 
     ticker() {
-      console.log("ticker changed", this.ticker);
-      this.tickerError = false;
+      if (!this.ticker) {
+        this.tips = [];
+      }
       this.tipsError = false;
+      this.debouncedGetTips();
     },
 
     tickers: {
